@@ -12,13 +12,16 @@ st.set_page_config(
     layout="wide"
 )
 
-DATA_FOLDER = "data"  # carpeta donde se suben los Excel
+DATA_FOLDER = "data"
 
 # -------------------------
 # FUNCIONES
 # -------------------------
 def cargar_datos():
     registros = []
+
+    if not os.path.exists(DATA_FOLDER):
+        return pd.DataFrame()
 
     for file in os.listdir(DATA_FOLDER):
         if file.endswith(".xlsx"):
@@ -30,8 +33,12 @@ def cargar_datos():
             df = pd.read_excel(os.path.join(DATA_FOLDER, file))
             df.columns = df.columns.str.lower()
 
+            required_cols = {"accesspoint", "usuarios_unicos", "macs"}
+            if not required_cols.issubset(df.columns):
+                continue
+
             for _, row in df.iterrows():
-                macs = [m.strip() for m in str(row["macs"]).split(",")]
+                macs = [m.strip() for m in str(row["macs"]).split(",") if m.strip()]
 
                 registros.append({
                     "fecha": fecha,
@@ -44,20 +51,28 @@ def cargar_datos():
 
 
 def calcular_metricas(df):
-    # Explode MACs
-    macs_df = df.explode("macs")
-
-    # Métricas diarias
+    # Resumen diario SIN explode
     resumen_diario = (
-        macs_df
+        df
         .groupby("fecha")
         .agg(
             usuarios_reportados=("usuarios_reportados", "sum"),
-            macs_unicas=("macs", "nunique"),
             nodos_activos=("accesspoint", "nunique")
         )
         .reset_index()
     )
+
+    # MACs únicas por día
+    macs_df = df.explode("macs")
+
+    macs_unicas = (
+        macs_df
+        .groupby("fecha")["macs"]
+        .nunique()
+        .reset_index(name="macs_unicas")
+    )
+
+    resumen_diario = resumen_diario.merge(macs_unicas, on="fecha")
 
     return macs_df, resumen_diario
 
@@ -93,24 +108,25 @@ periodo = st.sidebar.radio(
 )
 
 if periodo == "Día seleccionado":
-    df_periodo = df_raw[df_raw["fecha"] == fecha_seleccionada]
     resumen_periodo = resumen_diario[resumen_diario["fecha"] == fecha_seleccionada]
+    df_periodo = df_raw[df_raw["fecha"] == fecha_seleccionada]
 else:
     dias = 7 if "7" in periodo else 30
     fecha_inicio = fecha_seleccionada - pd.Timedelta(days=dias)
-    df_periodo = df_raw[df_raw["fecha"] >= fecha_inicio]
+
     resumen_periodo = resumen_diario[resumen_diario["fecha"] >= fecha_inicio]
+    df_periodo = df_raw[df_raw["fecha"] >= fecha_inicio]
 
 # -------------------------
-# KPIs
+# KPIs (TOTALES)
 # -------------------------
-usuarios = int(resumen_periodo["usuarios_reportados"].mean())
-macs_unicas = int(resumen_periodo["macs_unicas"].mean())
-nodos = int(resumen_periodo["nodos_activos"].mean())
+usuarios = int(resumen_periodo["usuarios_reportados"].sum())
+macs_unicas = int(resumen_periodo["macs_unicas"].max())
+nodos = int(resumen_periodo["nodos_activos"].max())
 
 col1, col2, col3 = st.columns(3)
-col1.metric("👥 Usuarios promedio", f"{usuarios:,}")
-col2.metric("📱 MACs únicas promedio", f"{macs_unicas:,}")
+col1.metric("👥 Usuarios totales", f"{usuarios:,}")
+col2.metric("📱 MACs únicas", f"{macs_unicas:,}")
 col3.metric("🔌 Nodos activos", nodos)
 
 # -------------------------
@@ -119,7 +135,7 @@ col3.metric("🔌 Nodos activos", nodos)
 usuarios_nodo = (
     df_periodo
     .groupby("accesspoint")["usuarios_reportados"]
-    .mean()
+    .sum()
     .reset_index()
     .sort_values(by="usuarios_reportados", ascending=False)
 )
@@ -128,9 +144,11 @@ fig_bar = px.bar(
     usuarios_nodo,
     x="accesspoint",
     y="usuarios_reportados",
-    title="Usuarios promedio por nodo",
+    title="Usuarios totales por nodo",
     labels={"usuarios_reportados": "Usuarios", "accesspoint": "Nodo"}
 )
+
+fig_bar.update_layout(xaxis_tickangle=-45)
 
 st.plotly_chart(fig_bar, use_container_width=True)
 
@@ -138,7 +156,7 @@ st.plotly_chart(fig_bar, use_container_width=True)
 # GRÁFICA: TENDENCIA DIARIA
 # -------------------------
 fig_line = px.line(
-    resumen_diario,
+    resumen_periodo,
     x="fecha",
     y="usuarios_reportados",
     title="Tendencia diaria de usuarios",
@@ -151,16 +169,16 @@ st.plotly_chart(fig_line, use_container_width=True)
 # TABLA EJECUTIVA
 # -------------------------
 tabla = (
-    df_periodo
+    macs_df[macs_df["fecha"].isin(df_periodo["fecha"])]
     .groupby("accesspoint")
     .agg(
-        usuarios_promedio=("usuarios_reportados", "mean"),
-        macs_unicas=("macs", lambda x: len(set(sum(x, []))))
+        usuarios_totales=("usuarios_reportados", "sum"),
+        macs_unicas=("macs", "nunique")
     )
     .reset_index()
-    .sort_values(by="usuarios_promedio", ascending=False)
+    .sort_values(by="usuarios_totales", ascending=False)
 )
 
-st.subheader("📋 Resumen por nodo")
+st.subheader("📋 Resumen por nodo (totales)")
 st.dataframe(tabla, use_container_width=True)
 
