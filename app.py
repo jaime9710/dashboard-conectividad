@@ -13,10 +13,13 @@ st.set_page_config(
 )
 
 DATA_FOLDER = "data"
+RAW_FOLDER = "raw_data"
 
 # -------------------------
 # FUNCIONES
 # -------------------------
+
+@st.cache_data
 def cargar_datos():
     registros = []
 
@@ -38,7 +41,15 @@ def cargar_datos():
                 continue
 
             for _, row in df.iterrows():
-                macs = [m.strip() for m in str(row["macs"]).split(",") if m.strip()]
+
+                if pd.notna(row["macs"]):
+                    macs = [
+                        m.strip()
+                        for m in str(row["macs"]).split(",")
+                        if m.strip()
+                    ]
+                else:
+                    macs = []
 
                 registros.append({
                     "fecha": fecha,
@@ -50,10 +61,9 @@ def cargar_datos():
 
 
 def calcular_metricas(df):
-    # Explode de MACs
+
     macs_df = df.explode("macs")
 
-    # Resumen diario SOLO MACs
     resumen_diario = (
         macs_df
         .groupby("fecha")
@@ -70,6 +80,7 @@ def calcular_metricas(df):
 # -------------------------
 # CARGA DE DATOS
 # -------------------------
+
 st.title("📊 Dashboard Ejecutivo de Conectividad")
 
 df_raw = cargar_datos()
@@ -83,6 +94,7 @@ macs_df, resumen_diario = calcular_metricas(df_raw)
 # -------------------------
 # FILTROS
 # -------------------------
+
 st.sidebar.header("📅 Filtros")
 
 fechas_disponibles = sorted(df_raw["fecha"].unique())
@@ -98,18 +110,27 @@ periodo = st.sidebar.radio(
 )
 
 if periodo == "Día seleccionado":
-    resumen_periodo = resumen_diario[resumen_diario["fecha"] == fecha_seleccionada]
-    macs_periodo = macs_df[macs_df["fecha"] == fecha_seleccionada]
+    resumen_periodo = resumen_diario[
+        resumen_diario["fecha"] == fecha_seleccionada
+    ]
+    macs_periodo = macs_df[
+        macs_df["fecha"] == fecha_seleccionada
+    ]
 else:
     dias = 7 if "7" in periodo else 30
-    fecha_inicio = fecha_seleccionada - pd.Timedelta(days=dias)
+    fecha_inicio = fecha_seleccionada - pd.Timedelta(days=dias - 1)
 
-    resumen_periodo = resumen_diario[resumen_diario["fecha"] >= fecha_inicio]
-    macs_periodo = macs_df[macs_df["fecha"] >= fecha_inicio]
+    resumen_periodo = resumen_diario[
+        resumen_diario["fecha"] >= fecha_inicio
+    ]
+    macs_periodo = macs_df[
+        macs_df["fecha"] >= fecha_inicio
+    ]
 
 # -------------------------
-# KPIs (SOLO MACs)
+# KPIs
 # -------------------------
+
 macs_unicas = int(macs_periodo["macs"].nunique())
 nodos = int(macs_periodo["accesspoint"].nunique())
 
@@ -120,6 +141,7 @@ col2.metric("🔌 Nodos activos", nodos)
 # -------------------------
 # GRÁFICA: MACs POR NODO
 # -------------------------
+
 macs_por_nodo = (
     macs_periodo
     .groupby("accesspoint")["macs"]
@@ -141,8 +163,9 @@ fig_bar.update_layout(xaxis_tickangle=-45)
 st.plotly_chart(fig_bar, use_container_width=True)
 
 # -------------------------
-# GRÁFICA: TENDENCIA DIARIA DE MACs
+# GRÁFICA: TENDENCIA DIARIA
 # -------------------------
+
 fig_line = px.line(
     resumen_periodo,
     x="fecha",
@@ -156,6 +179,7 @@ st.plotly_chart(fig_line, use_container_width=True)
 # -------------------------
 # TABLA EJECUTIVA
 # -------------------------
+
 tabla = (
     macs_periodo
     .groupby("accesspoint")
@@ -168,3 +192,42 @@ tabla = (
 
 st.subheader("📋 Resumen por nodo (MACs únicas)")
 st.dataframe(tabla, use_container_width=True)
+
+# -------------------------
+# DESCARGA ARCHIVOS ORIGINALES
+# -------------------------
+
+st.subheader("📥 Descargar archivos originales")
+
+if os.path.exists(RAW_FOLDER):
+
+    raw_files = [
+        f for f in os.listdir(RAW_FOLDER)
+        if f.endswith(".xlsx")
+    ]
+
+    if raw_files:
+
+        archivo_seleccionado = st.selectbox(
+            "Selecciona un archivo",
+            sorted(raw_files, reverse=True)
+        )
+
+        file_path = os.path.join(
+            RAW_FOLDER,
+            archivo_seleccionado
+        )
+
+        with open(file_path, "rb") as f:
+            st.download_button(
+                label="Descargar archivo",
+                data=f,
+                file_name=archivo_seleccionado,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+
+    else:
+        st.info("No hay archivos en la carpeta raw_data")
+
+else:
+    st.warning("La carpeta raw_data no existe")
