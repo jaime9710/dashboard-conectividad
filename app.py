@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import os
+import re
 from datetime import datetime
 
 # -------------------------
@@ -31,25 +32,27 @@ def cargar_datos():
         if not file.endswith((".xlsx", ".csv")):
             continue
 
-        # Extraer fecha desde nombre (YYYY-MM-DD)
-        try:
-            nombre_sin_extension = os.path.splitext(file)[0]
-            fecha = datetime.strptime(nombre_sin_extension, "%Y-%m-%d")
-        except:
+        nombre_sin_extension = os.path.splitext(file)[0]
+
+        # 🔎 Buscar fecha en cualquier parte del nombre
+        match = re.search(r"\d{4}-\d{2}-\d{2}", nombre_sin_extension)
+        if not match:
             continue
+
+        fecha = datetime.strptime(match.group(), "%Y-%m-%d")
 
         file_path = os.path.join(DATA_FOLDER, file)
 
-        # Leer archivo según extensión
         try:
             if file.endswith(".csv"):
-                df = pd.read_csv(file_path)
+                # Detecta automáticamente separador , o ;
+                df = pd.read_csv(file_path, sep=None, engine="python")
             else:
                 df = pd.read_excel(file_path)
         except:
             continue
 
-        df.columns = df.columns.str.lower()
+        df.columns = df.columns.str.lower().str.strip()
 
         required_cols = {"accesspoint", "macs"}
         if not required_cols.issubset(df.columns):
@@ -76,7 +79,6 @@ def cargar_datos():
 
 
 def calcular_metricas(df):
-
     macs_df = df.explode("macs")
 
     resumen_diario = (
@@ -174,7 +176,6 @@ fig_bar = px.bar(
 )
 
 fig_bar.update_layout(xaxis_tickangle=-45)
-
 st.plotly_chart(fig_bar, use_container_width=True)
 
 # -------------------------
@@ -198,9 +199,7 @@ st.plotly_chart(fig_line, use_container_width=True)
 tabla = (
     macs_periodo
     .groupby("accesspoint")
-    .agg(
-        macs_unicas=("macs", "nunique")
-    )
+    .agg(macs_unicas=("macs", "nunique"))
     .reset_index()
     .sort_values(by="macs_unicas", ascending=False)
 )
@@ -250,4 +249,5 @@ if os.path.exists(RAW_FOLDER):
 
 else:
     st.warning("La carpeta raw_data no existe")
+
 
