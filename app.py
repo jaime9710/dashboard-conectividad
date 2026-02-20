@@ -27,35 +27,50 @@ def cargar_datos():
         return pd.DataFrame()
 
     for file in os.listdir(DATA_FOLDER):
-        if file.endswith(".xlsx"):
-            try:
-                fecha = datetime.strptime(file.replace(".xlsx", ""), "%Y-%m-%d")
-            except:
-                continue
 
-            df = pd.read_excel(os.path.join(DATA_FOLDER, file))
-            df.columns = df.columns.str.lower()
+        if not file.endswith((".xlsx", ".csv")):
+            continue
 
-            required_cols = {"accesspoint", "macs"}
-            if not required_cols.issubset(df.columns):
-                continue
+        # Extraer fecha desde nombre (YYYY-MM-DD)
+        try:
+            nombre_sin_extension = os.path.splitext(file)[0]
+            fecha = datetime.strptime(nombre_sin_extension, "%Y-%m-%d")
+        except:
+            continue
 
-            for _, row in df.iterrows():
+        file_path = os.path.join(DATA_FOLDER, file)
 
-                if pd.notna(row["macs"]):
-                    macs = [
-                        m.strip()
-                        for m in str(row["macs"]).split(",")
-                        if m.strip()
-                    ]
-                else:
-                    macs = []
+        # Leer archivo según extensión
+        try:
+            if file.endswith(".csv"):
+                df = pd.read_csv(file_path)
+            else:
+                df = pd.read_excel(file_path)
+        except:
+            continue
 
-                registros.append({
-                    "fecha": fecha,
-                    "accesspoint": row["accesspoint"],
-                    "macs": macs
-                })
+        df.columns = df.columns.str.lower()
+
+        required_cols = {"accesspoint", "macs"}
+        if not required_cols.issubset(df.columns):
+            continue
+
+        for _, row in df.iterrows():
+
+            if pd.notna(row["macs"]):
+                macs = [
+                    m.strip()
+                    for m in str(row["macs"]).split(",")
+                    if m.strip()
+                ]
+            else:
+                macs = []
+
+            registros.append({
+                "fecha": fecha,
+                "accesspoint": row["accesspoint"],
+                "macs": macs
+            })
 
     return pd.DataFrame(registros)
 
@@ -86,7 +101,7 @@ st.title("📊 Dashboard Ejecutivo de Conectividad")
 df_raw = cargar_datos()
 
 if df_raw.empty:
-    st.warning("No hay archivos Excel válidos en la carpeta /data")
+    st.warning("No hay archivos válidos en la carpeta /data")
     st.stop()
 
 macs_df, resumen_diario = calcular_metricas(df_raw)
@@ -203,7 +218,7 @@ if os.path.exists(RAW_FOLDER):
 
     raw_files = [
         f for f in os.listdir(RAW_FOLDER)
-        if f.endswith(".xlsx")
+        if f.endswith((".xlsx", ".csv"))
     ]
 
     if raw_files:
@@ -213,17 +228,21 @@ if os.path.exists(RAW_FOLDER):
             sorted(raw_files, reverse=True)
         )
 
-        file_path = os.path.join(
-            RAW_FOLDER,
-            archivo_seleccionado
-        )
+        file_path = os.path.join(RAW_FOLDER, archivo_seleccionado)
 
         with open(file_path, "rb") as f:
+
+            mime_type = (
+                "text/csv"
+                if archivo_seleccionado.endswith(".csv")
+                else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+
             st.download_button(
                 label="Descargar archivo",
                 data=f,
                 file_name=archivo_seleccionado,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                mime=mime_type
             )
 
     else:
@@ -231,3 +250,4 @@ if os.path.exists(RAW_FOLDER):
 
 else:
     st.warning("La carpeta raw_data no existe")
+
