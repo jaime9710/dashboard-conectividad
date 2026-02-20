@@ -34,7 +34,7 @@ def cargar_datos():
 
         nombre_sin_extension = os.path.splitext(file)[0]
 
-        # 🔎 Buscar fecha en cualquier parte del nombre
+        # Buscar fecha en cualquier parte del nombre
         match = re.search(r"\d{4}-\d{2}-\d{2}", nombre_sin_extension)
         if not match:
             continue
@@ -45,7 +45,6 @@ def cargar_datos():
 
         try:
             if file.endswith(".csv"):
-                # Detecta automáticamente separador , o ;
                 df = pd.read_csv(file_path, sep=None, engine="python")
             else:
                 df = pd.read_excel(file_path)
@@ -95,10 +94,16 @@ def calcular_metricas(df):
 
 
 # -------------------------
-# CARGA DE DATOS
+# INTERFAZ
 # -------------------------
 
 st.title("📊 Dashboard Ejecutivo de Conectividad")
+
+# 🔄 BOTÓN ACTUALIZAR DATOS
+if st.button("🔄 Actualizar datos"):
+    st.cache_data.clear()
+    st.success("Datos actualizados correctamente ✅")
+    st.rerun()
 
 df_raw = cargar_datos()
 
